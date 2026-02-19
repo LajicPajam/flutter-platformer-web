@@ -65,6 +65,8 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
   Size? _viewportSize;
   String? _statusBanner;
   DateTime? _bannerExpiry;
+  Offset _currentRespawnPoint = Offset.zero;
+  int _activeCheckpointIndex = -1;
 
   Rect get _playerRect => Rect.fromLTWH(
         _playerPosition.dx,
@@ -99,13 +101,19 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
     _levelInstance = _levels[index].createInstance();
     _statusBanner = null;
     _bannerExpiry = null;
-    _respawn(resetLives: false);
+    _activeCheckpointIndex = -1;
+    _currentRespawnPoint = _levels[index].spawn;
+    _respawn(resetLives: false, fullReset: true);
   }
 
-  void _respawn({required bool resetLives}) {
-    _levelInstance?.resetDynamicState();
+  void _respawn({required bool resetLives, required bool fullReset}) {
+    _levelInstance?.resetDynamicState(full: fullReset);
     final level = _levels[_currentLevelIndex];
-    _playerPosition = level.spawn;
+    if (fullReset) {
+      _currentRespawnPoint = level.spawn;
+      _activeCheckpointIndex = -1;
+    }
+    _playerPosition = fullReset ? level.spawn : _currentRespawnPoint;
     _velocityX = 0;
     _velocityY = 0;
     _grounded = false;
@@ -153,6 +161,7 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
     _moveHorizontally(delta);
     _moveVertically(delta);
     _collectIngredients();
+    _checkCheckpoints();
     _checkHazards();
     _checkGoalReached();
     _updateCamera();
@@ -231,6 +240,20 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
     }
   }
 
+  void _checkCheckpoints() {
+    final playerRect = _playerRect;
+    final checkpoints = _currentLevel.checkpoints;
+    for (var i = 0; i < checkpoints.length; i++) {
+      final checkpoint = checkpoints[i];
+      if (!checkpoint.activated && playerRect.overlaps(checkpoint.definition.area)) {
+        checkpoint.activated = true;
+        _activeCheckpointIndex = i;
+        _currentRespawnPoint = checkpoint.definition.respawn;
+        _showBanner('Checkpoint: ${checkpoint.definition.label}');
+      }
+    }
+  }
+
   void _checkHazards() {
     final playerRect = _playerRect;
     for (final hazard in _currentLevel.definition.hazards) {
@@ -289,7 +312,7 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
       return;
     }
     _showBanner(reason);
-    _respawn(resetLives: false);
+    _respawn(resetLives: false, fullReset: false);
   }
 
   void _showBanner(String message) {
@@ -359,7 +382,7 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
       _statusBanner = null;
       _bannerExpiry = null;
       _loadLevel(0);
-      _respawn(resetLives: true);
+      _respawn(resetLives: true, fullReset: true);
     });
   }
 
@@ -372,7 +395,7 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
       _statusBanner = null;
       _bannerExpiry = null;
       _loadLevel(0);
-      _respawn(resetLives: true);
+      _respawn(resetLives: true, fullReset: true);
     });
   }
 
@@ -385,7 +408,7 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
       _statusBanner = null;
       _bannerExpiry = null;
       _loadLevel(0);
-      _respawn(resetLives: true);
+      _respawn(resetLives: true, fullReset: true);
     });
   }
 
@@ -583,16 +606,24 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
                 style: const TextStyle(fontSize: 12, color: Colors.white70),
               ),
               const SizedBox(height: 4),
-              Row(
+              Wrap(
+                spacing: 12,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  const Icon(Icons.local_pizza, color: Colors.orange, size: 18),
-                  const SizedBox(width: 4),
-                  Text('Lives: ${_livesSystem.remaining}'),
-                  const SizedBox(width: 16),
-                  const Icon(Icons.double_arrow, size: 18),
-                  const SizedBox(width: 4),
-                  const Text('Double Jump Ready: '),
-                  Text(_jumpController.canJump || _grounded ? 'Yes' : 'Used'),
+                  _HudLabel(
+                    icon: Icons.local_pizza,
+                    label: 'Lives: ${_livesSystem.remaining}',
+                  ),
+                  _HudLabel(
+                    icon: Icons.double_arrow,
+                    label: 'Double Jump: ${_jumpController.canJump || _grounded ? 'Ready' : 'Used'}',
+                  ),
+                  _HudLabel(
+                    icon: Icons.flag,
+                    label:
+                        'Checkpoint: ${_activeCheckpointIndex >= 0 ? _currentLevel.checkpoints[_activeCheckpointIndex].definition.label : 'Starting Oven'}',
+                  ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -665,6 +696,25 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
   }
 }
 
+class _HudLabel extends StatelessWidget {
+  const _HudLabel({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 18, color: Colors.white70),
+        const SizedBox(width: 4),
+        Text(label),
+      ],
+    );
+  }
+}
+
 class _IngredientChip extends StatelessWidget {
   const _IngredientChip({required this.ingredient});
 
@@ -726,6 +776,8 @@ class GamePainter extends CustomPainter {
       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
     canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), background);
 
+    _drawParallax(canvas, size);
+
     canvas.save();
     canvas.translate(-cameraX, 0);
 
@@ -762,6 +814,23 @@ class GamePainter extends CustomPainter {
         ..quadraticBezierTo(rect.center.dx + 4, rect.center.dy + 12, rect.center.dx + 10, rect.center.dy + 4)
         ..quadraticBezierTo(rect.center.dx, rect.center.dy + 18, rect.center.dx - 10, rect.center.dy + 4);
       canvas.drawPath(stache, Paint()..color = Colors.black);
+    }
+
+    for (final checkpoint in level.checkpoints) {
+      final flagColor = checkpoint.activated ? const Color(0xFFbef264) : Colors.white38;
+      final poleRect = Rect.fromLTWH(
+        checkpoint.definition.area.center.dx - 3,
+        checkpoint.definition.area.bottom - 50,
+        6,
+        50,
+      );
+      canvas.drawRect(poleRect, Paint()..color = Colors.white70);
+      final flagPath = Path()
+        ..moveTo(poleRect.left + poleRect.width, poleRect.top)
+        ..lineTo(poleRect.left + poleRect.width + 26, poleRect.top + 10)
+        ..lineTo(poleRect.left + poleRect.width, poleRect.top + 20)
+        ..close();
+      canvas.drawPath(flagPath, Paint()..color = flagColor);
     }
 
     for (final ingredient in level.ingredients) {
@@ -834,6 +903,26 @@ class GamePainter extends CustomPainter {
       ..quadraticBezierTo(rect.center.dx, rect.center.dy + 20, rect.center.dx - 14, rect.center.dy + 8)
       ..close();
     canvas.drawPath(mustache, Paint()..color = const Color(0xFF0f172a));
+  }
+
+  void _drawParallax(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.translate(-cameraX * 0.3, 0);
+    final skylinePaint = Paint()..color = Colors.white.withOpacity(0.08);
+    for (int i = 0; i < 8; i++) {
+      final double x = i * 260.0;
+      final double buildingHeight = 80 + (i % 3) * 25;
+      final rect = Rect.fromLTWH(x, size.height - buildingHeight - 120, 180, buildingHeight);
+      canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(8)), skylinePaint);
+    }
+
+    final accentPaint = Paint()..color = Colors.white.withOpacity(0.12);
+    for (int i = 0; i < 20; i++) {
+      final double x = i * 140.0 + (i.isEven ? 30 : 0);
+      final double y = 80 + (i % 5) * 30;
+      canvas.drawCircle(Offset(x, y), 2.2, accentPaint);
+    }
+    canvas.restore();
   }
 
   List<Color> _gradientForTheme(String label) {

@@ -25,7 +25,7 @@ You will see a title screen — click **Start Cooking** (or press Space/Enter) t
 - **Jump / Double Jump**: Arrow Up, `W`, or Space. Bryce can jump twice before landing.
 - **Restart Quest**: Press `R` from the victory/game-over overlays or use the on-screen buttons.
 
-Collect **all four ingredients** in a level (Dough, Sauce, Cheese, Unique Topping) to light up the exit portal. Hazards (red spikes) and patrolling Italian rival chefs will cost Bryce a life. Falling off the map also counts as a death. Bryce starts each run with **three lives**; losing them shows a Game Over overlay.
+Collect **all four ingredients** in a level (Dough, Sauce, Cheese, Unique Topping) to light up the exit portal. Hazards (red spikes) and patrolling Italian rival chefs will cost Bryce a life. Falling off the map also counts as a death. Bryce starts each run with **three lives** and can tag mid-level checkpoints; on a fall, he respawns from the latest oven he activated instead of restarting the entire map.
 
 ### Kitchen Tour
 1. **Home Oven Heights** – Cozy rooftops where Bryce grabs stone-milled dough and grandma sauce.
@@ -34,7 +34,7 @@ Collect **all four ingredients** in a level (Dough, Sauce, Cheese, Unique Toppin
 4. **Coastal Kitchen** – Salt-sprayed boardwalk ovens and anchovy crumble.
 5. **Cosmic Pizzeria** – Zero-G platforms full of meteor dough and galaxy basil dust.
 
-Each level has unique platform layouts, hazards, and rivals. The HUD shows current level, theme, lives, double-jump state, and ingredient checklist.
+Each level has unique platform layouts, hazards, rival chefs, and checkpoint flags. A parallax skyline/background gives every kitchen its own vibe, and the HUD shows the current level, theme, lives, double-jump state, checkpoint label, and ingredient checklist.
 
 ## Building for the Web
 ```bash
@@ -47,7 +47,7 @@ Logic and widget tests cover gravity helpers, camera math, ingredient tracking, 
 ```bash
 flutter test
 ```
-Latest CI evidence for this task is saved under `workspace/shared/logs/task-20260219-015245/03-build/flutter-test.log`.
+Latest CI evidence for the rework lives under `workspace/shared/logs/task-20260219-015245-rework/03-build/flutter-test.log`.
 
 ## Project Structure
 ```
@@ -68,5 +68,5 @@ flutter-platformer/
 
 ## Workflow
 - Feature work happens on task-specific branches (e.g., `feature/task-20260219-015245`).
-- Always run `flutter test` and capture logs inside `workspace/shared/logs/task-20260219-015245/03-build/` before requesting review.
+- Always run `flutter test` and capture logs inside `workspace/shared/logs/task-20260219-015245-rework/03-build/` before requesting review.
 - After review, merge to `main` and push to the GitHub remote (`flutter-platformer-web`).
