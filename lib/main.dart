@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
+import 'game_logic.dart';
+import 'level_data.dart';
 import 'physics.dart';
 
 void main() {
@@ -16,10 +18,10 @@ class PlatformerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Platformer',
+      title: "Bryce's Pizza Quest",
       theme: ThemeData.dark(useMaterial3: true).copyWith(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blueAccent,
+          seedColor: Colors.deepOrangeAccent,
           brightness: Brightness.dark,
         ),
       ),
@@ -37,38 +39,31 @@ class GamePage extends StatefulWidget {
 
 class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin {
   static const Size _playerSize = Size(42, 42);
-  static const Size _levelSize = Size(2200, 900);
-  static const Rect _goalArea = Rect.fromLTWH(1930, 240, 80, 140);
-  static const double _moveSpeed = 260;
-  static const double _jumpVelocity = -620;
-  static const double _gravity = 1800;
-  static const double _terminalVelocity = 900;
+  static const double _moveSpeed = 280;
+  static const double _jumpVelocity = -640;
+  static const double _gravity = 1900;
+  static const double _terminalVelocity = 980;
 
-  final List<Rect> _platforms = const [
-    Rect.fromLTWH(0, 740, 500, 60),
-    Rect.fromLTWH(520, 660, 220, 40),
-    Rect.fromLTWH(800, 580, 220, 40),
-    Rect.fromLTWH(1090, 520, 240, 40),
-    Rect.fromLTWH(1380, 460, 200, 40),
-    Rect.fromLTWH(1660, 380, 200, 40),
-    Rect.fromLTWH(1880, 540, 240, 40),
-    Rect.fromLTWH(1180, 780, 420, 40),
-    Rect.fromLTWH(1520, 670, 180, 30),
-  ];
-
-  late final Ticker _ticker;
   final FocusNode _focusNode = FocusNode();
-  Duration? _lastTick;
-  Size? _viewportSize;
+  late final Ticker _ticker;
+  final DoubleJumpController _jumpController = DoubleJumpController(maxJumps: 2);
+  final LivesSystem _livesSystem = LivesSystem(maxLives: 3);
+  final List<LevelDefinition> _levels = buildLevelDefinitions();
 
+  LevelInstance? _levelInstance;
+  int _currentLevelIndex = 0;
   Offset _playerPosition = const Offset(60, 680);
   double _velocityX = 0;
   double _velocityY = 0;
-  double _cameraX = 0;
-  bool _leftPressed = false;
-  bool _rightPressed = false;
   bool _grounded = false;
-  bool _won = false;
+  bool _levelCleared = false;
+  bool _victory = false;
+  bool _gameOver = false;
+  double _cameraX = 0;
+  Duration? _lastTick;
+  Size? _viewportSize;
+  String? _statusBanner;
+  DateTime? _bannerExpiry;
 
   Rect get _playerRect => Rect.fromLTWH(
         _playerPosition.dx,
@@ -77,9 +72,16 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
         _playerSize.height,
       );
 
+  LevelInstance get _currentLevel => _levelInstance ??= _levels.first.createInstance();
+
+  Size get _worldSize => _currentLevel.definition.worldSize;
+
+  bool get _isPaused => _levelCleared || _victory || _gameOver;
+
   @override
   void initState() {
     super.initState();
+    _loadLevel(0);
     _focusNode.requestFocus();
     _ticker = createTicker(_handleTick)..start();
   }
@@ -91,15 +93,35 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
     super.dispose();
   }
 
-  void _handleTick(Duration elapsed) {
-    if (_viewportSize == null || _won) {
-      _lastTick = elapsed;
-      return;
-    }
+  void _loadLevel(int index) {
+    _currentLevelIndex = index;
+    _levelInstance = _levels[index].createInstance();
+    _respawn(resetLives: false);
+  }
 
+  void _respawn({required bool resetLives}) {
+    _levelInstance?.resetDynamicState();
+    final level = _levels[_currentLevelIndex];
+    _playerPosition = level.spawn;
+    _velocityX = 0;
+    _velocityY = 0;
+    _grounded = false;
+    _jumpController.reset();
+    _cameraX = 0;
+    if (resetLives) {
+      _livesSystem.reset();
+    }
+  }
+
+  void _handleTick(Duration elapsed) {
     final last = _lastTick;
     _lastTick = elapsed;
     if (last == null) {
+      return;
+    }
+
+    if (_isPaused || _viewportSize == null) {
+      _maybeClearBanner();
       return;
     }
 
@@ -121,15 +143,25 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
       terminalVelocity: _terminalVelocity,
     );
 
+    for (final enemy in _currentLevel.enemies) {
+      enemy.update(delta);
+    }
+
     _moveHorizontally(delta);
     _moveVertically(delta);
-    _updateCamera();
+    _collectIngredients();
+    _checkHazards();
     _checkGoalReached();
+    _updateCamera();
+    _maybeClearBanner();
 
     if (mounted) {
       setState(() {});
     }
   }
+
+  bool _leftPressed = false;
+  bool _rightPressed = false;
 
   void _moveHorizontally(double delta) {
     if (_velocityX == 0) {
@@ -138,7 +170,7 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
     double nextX = _playerPosition.dx + _velocityX * delta;
     Rect future = Rect.fromLTWH(nextX, _playerPosition.dy, _playerSize.width, _playerSize.height);
 
-    for (final platform in _platforms) {
+    for (final platform in _currentLevel.definition.platforms) {
       if (future.overlaps(platform)) {
         if (_velocityX > 0) {
           nextX = platform.left - _playerSize.width - 0.1;
@@ -150,7 +182,7 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
       }
     }
 
-    nextX = nextX.clamp(0.0, _levelSize.width - _playerSize.width);
+    nextX = nextX.clamp(0.0, _worldSize.width - _playerSize.width);
     _playerPosition = Offset(nextX, _playerPosition.dy);
   }
 
@@ -159,7 +191,7 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
     Rect future = Rect.fromLTWH(_playerPosition.dx, nextY, _playerSize.width, _playerSize.height);
     bool grounded = false;
 
-    for (final platform in _platforms) {
+    for (final platform in _currentLevel.definition.platforms) {
       if (future.overlaps(platform)) {
         if (_velocityY > 0) {
           nextY = platform.top - _playerSize.height;
@@ -174,20 +206,59 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
 
     _playerPosition = Offset(
       _playerPosition.dx,
-      nextY.clamp(0.0, _levelSize.height - _playerSize.height),
+      nextY.clamp(0.0, _worldSize.height - _playerSize.height),
     );
     _grounded = grounded;
+    if (_grounded) {
+      _jumpController.reset();
+    }
 
-    if (_playerPosition.dy > _levelSize.height + 200) {
-      _respawn();
+    if (_playerPosition.dy > _worldSize.height + 200) {
+      _handleDeath(reason: 'Bryce slipped into the void');
+    }
+  }
+
+  void _collectIngredients() {
+    final playerRect = _playerRect;
+    for (final ingredient in _currentLevel.ingredients) {
+      if (!ingredient.collected && playerRect.overlaps(ingredient.rect)) {
+        ingredient.collected = true;
+        _showBanner('Bryce grabbed ${ingredientLabel(ingredient.type)}!');
+      }
+    }
+  }
+
+  void _checkHazards() {
+    final playerRect = _playerRect;
+    for (final hazard in _currentLevel.definition.hazards) {
+      if (playerRect.overlaps(hazard)) {
+        _handleDeath(reason: 'Spikes hurt!');
+        return;
+      }
+    }
+    for (final enemy in _currentLevel.enemies) {
+      if (playerRect.overlaps(enemy.rect)) {
+        _handleDeath(reason: 'A rival chef tackled Bryce');
+        return;
+      }
     }
   }
 
   void _checkGoalReached() {
-    if (!_won && _playerRect.overlaps(_goalArea)) {
-      setState(() {
-        _won = true;
-      });
+    if (_victory || _gameOver || _levelCleared) {
+      return;
+    }
+    final exitRect = _levels[_currentLevelIndex].exit;
+    if (_playerRect.overlaps(exitRect) && _currentLevel.tracker.isComplete) {
+      if (_currentLevelIndex == _levels.length - 1) {
+        setState(() {
+          _victory = true;
+        });
+      } else {
+        setState(() {
+          _levelCleared = true;
+        });
+      }
     }
   }
 
@@ -199,16 +270,36 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
     _cameraX = clampCameraOffset(
       playerCenter: _playerPosition.dx + _playerSize.width / 2,
       viewportWidth: viewport.width,
-      levelWidth: _levelSize.width,
+      levelWidth: _worldSize.width,
     );
   }
 
-  void _respawn() {
-    _playerPosition = const Offset(60, 680);
-    _velocityX = 0;
-    _velocityY = 0;
-    _grounded = false;
-    _won = false;
+  void _handleDeath({required String reason}) {
+    if (_gameOver || _victory) {
+      return;
+    }
+    final isGameOver = _livesSystem.loseLife();
+    if (isGameOver) {
+      setState(() {
+        _gameOver = true;
+      });
+      return;
+    }
+    _showBanner(reason);
+    _respawn(resetLives: false);
+  }
+
+  void _showBanner(String message) {
+    _statusBanner = message;
+    _bannerExpiry = DateTime.now().add(const Duration(seconds: 3));
+  }
+
+  void _maybeClearBanner() {
+    final expiry = _bannerExpiry;
+    if (expiry != null && DateTime.now().isAfter(expiry)) {
+      _statusBanner = null;
+      _bannerExpiry = null;
+    }
   }
 
   void _handleKey(RawKeyEvent event) {
@@ -216,8 +307,8 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
       return;
     }
 
-    final isDown = event is RawKeyDownEvent;
     final key = event.logicalKey;
+    final isDown = event is RawKeyDownEvent;
 
     if (key == LogicalKeyboardKey.arrowLeft || key == LogicalKeyboardKey.keyA) {
       _leftPressed = isDown;
@@ -225,24 +316,41 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
       _rightPressed = isDown;
     }
 
-    if (isDown &&
-        (key == LogicalKeyboardKey.arrowUp ||
-            key == LogicalKeyboardKey.space ||
-            key == LogicalKeyboardKey.keyW)) {
-      _jump();
+    if (isDown && (key == LogicalKeyboardKey.arrowUp ||
+        key == LogicalKeyboardKey.keyW ||
+        key == LogicalKeyboardKey.space)) {
+      _attemptJump();
+    }
+
+    if (isDown && key == LogicalKeyboardKey.keyR && (_gameOver || _victory)) {
+      _restartCampaign();
     }
   }
 
-  void _jump() {
-    if (_grounded && !_won) {
+  void _attemptJump() {
+    if (_jumpController.canJump && !_levelCleared && !_victory && !_gameOver) {
       _velocityY = _jumpVelocity;
+      _jumpController.registerJump();
       _grounded = false;
     }
   }
 
-  void _restartLevel() {
+  void _restartCampaign() {
     setState(() {
-      _respawn();
+      _victory = false;
+      _gameOver = false;
+      _levelCleared = false;
+      _statusBanner = null;
+      _bannerExpiry = null;
+      _loadLevel(0);
+      _respawn(resetLives: true);
+    });
+  }
+
+  void _advanceLevel() {
+    setState(() {
+      _levelCleared = false;
+      _loadLevel(_currentLevelIndex + 1);
     });
   }
 
@@ -251,7 +359,7 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
     return Scaffold(
       body: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: _focusNode.requestFocus,
+        onTap: () => _focusNode.requestFocus(),
         child: RawKeyboardListener(
           focusNode: _focusNode,
           autofocus: true,
@@ -262,18 +370,17 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
               return Stack(
                 children: [
                   CustomPaint(
+                    size: Size.infinite,
                     painter: GamePainter(
-                      platforms: _platforms,
-                      goal: _goalArea,
+                      level: _currentLevel,
                       player: _playerRect,
                       cameraX: _cameraX,
-                      levelSize: _levelSize,
-                      won: _won,
+                      exitUnlocked: _currentLevel.tracker.isComplete,
                     ),
-                    size: Size.infinite,
                   ),
+                  _buildHud(),
                   Positioned(
-                    top: 20,
+                    bottom: 20,
                     left: 20,
                     child: DecoratedBox(
                       decoration: BoxDecoration(
@@ -283,32 +390,50 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
                       child: const Padding(
                         padding: EdgeInsets.all(12),
                         child: Text(
-                          'Use Arrow keys or WASD to move. Space/Up to jump.\n'
-                          'Reach the glowing portal to win.',
+                          "Bryce's Pizza Quest: use Arrow/WASD to move, Space/Up for jumps."
+                          " Collect every ingredient to light up the exit portal."
+                          " Double-jump by tapping jump again while airborne.",
                         ),
                       ),
                     ),
                   ),
-                  if (_won)
-                    Positioned.fill(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(color: Colors.black.withOpacity(0.55)),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Text(
-                              'Level Complete!',
-                              style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+                  if (_statusBanner != null)
+                    Positioned(
+                      top: 110,
+                      child: SizedBox(
+                        width: MediaQuery.of(context).size.width,
+                        child: Center(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.6),
+                              borderRadius: BorderRadius.circular(20),
                             ),
-                            const SizedBox(height: 16),
-                            ElevatedButton.icon(
-                              onPressed: _restartLevel,
-                              icon: const Icon(Icons.replay),
-                              label: const Text('Restart'),
-                            ),
-                          ],
+                            child: Text(_statusBanner!),
+                          ),
                         ),
                       ),
+                    ),
+                  if (_levelCleared)
+                    _buildBlockingOverlay(
+                      title: 'Level clear!',
+                      description: 'Bryce gathered every ingredient. Ready for the next delivery?',
+                      primaryLabel: 'Next level',
+                      onPrimary: _advanceLevel,
+                    ),
+                  if (_victory)
+                    _buildBlockingOverlay(
+                      title: 'Pizza Perfect! 🍕',
+                      description: 'Bryce assembled the ultimate pie. Time to feed the city.',
+                      primaryLabel: 'Restart Quest',
+                      onPrimary: _restartCampaign,
+                    ),
+                  if (_gameOver)
+                    _buildBlockingOverlay(
+                      title: 'Game Over',
+                      description: 'Bryce ran out of aprons. Try the quest again!',
+                      primaryLabel: 'Restart Quest',
+                      onPrimary: _restartCampaign,
                     ),
                 ],
               );
@@ -318,24 +443,159 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
       ),
     );
   }
+
+  Widget _buildHud() {
+    final level = _levels[_currentLevelIndex];
+    final tracker = _currentLevel.tracker;
+    final ingredientChips = tracker.ingredients
+        .map((ingredient) => _IngredientChip(
+              label: ingredientLabel(ingredient.type),
+              collected: ingredient.collected,
+              type: ingredient.type,
+            ))
+        .toList();
+
+    return Positioned(
+      top: 16,
+      left: 16,
+      right: 16,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.65),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                "Bryce's Pizza Quest — Level ${_currentLevelIndex + 1}/${_levels.length}: ${level.name}",
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  const Icon(Icons.local_pizza, color: Colors.orange, size: 18),
+                  const SizedBox(width: 4),
+                  Text('Lives: ${_livesSystem.remaining}'),
+                  const SizedBox(width: 16),
+                  const Icon(Icons.double_arrow, size: 18),
+                  const SizedBox(width: 4),
+                  const Text('Double Jump Ready: '),
+                  Text(_jumpController.canJump || _grounded ? 'Yes' : 'Used'),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (ingredientChips.isNotEmpty)
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: ingredientChips,
+                )
+              else
+                const Text('No ingredients required — head for the exit!'),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBlockingOverlay({
+    required String title,
+    required String description,
+    required String primaryLabel,
+    required VoidCallback onPrimary,
+  }) {
+    return Positioned.fill(
+      child: DecoratedBox(
+        decoration: BoxDecoration(color: Colors.black.withOpacity(0.75)),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: 320,
+                child: Text(
+                  description,
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: onPrimary,
+                icon: const Icon(Icons.replay),
+                label: Text(primaryLabel),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _IngredientChip extends StatelessWidget {
+  const _IngredientChip({
+    required this.label,
+    required this.collected,
+    required this.type,
+  });
+
+  final String label;
+  final bool collected;
+  final IngredientType type;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color color;
+    switch (type) {
+      case IngredientType.dough:
+        color = const Color(0xFFfb923c);
+        break;
+      case IngredientType.sauce:
+        color = const Color(0xFFef4444);
+        break;
+      case IngredientType.cheese:
+        color = const Color(0xFFfacc15);
+        break;
+      case IngredientType.toppings:
+        color = const Color(0xFF4ade80);
+        break;
+    }
+
+    return Chip(
+      avatar: Icon(
+        collected ? Icons.check_circle : Icons.circle_outlined,
+        size: 18,
+        color: collected ? Colors.limeAccent : Colors.white70,
+      ),
+      backgroundColor: collected ? color.withOpacity(0.3) : Colors.white12,
+      label: Text('$label ${collected ? '✓' : '…'}'),
+    );
+  }
 }
 
 class GamePainter extends CustomPainter {
   GamePainter({
-    required this.platforms,
-    required this.goal,
+    required this.level,
     required this.player,
     required this.cameraX,
-    required this.levelSize,
-    required this.won,
+    required this.exitUnlocked,
   });
 
-  final List<Rect> platforms;
-  final Rect goal;
+  final LevelInstance level;
   final Rect player;
   final double cameraX;
-  final Size levelSize;
-  final bool won;
+  final bool exitUnlocked;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -356,24 +616,68 @@ class GamePainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
 
-    for (final platform in platforms) {
+    for (final platform in level.definition.platforms) {
       final rrect = RRect.fromRectAndRadius(platform, const Radius.circular(6));
       canvas.drawRRect(rrect, platformPaint);
       canvas.drawRRect(rrect, edgePaint);
     }
 
-    final goalPaint = Paint()
-      ..color = won ? const Color(0xFFbef264) : const Color(0xFFfacc15);
-    final goalOutline = Paint()
+    final hazardPaint = Paint()
+      ..color = const Color(0xFFb91c1c)
+      ..style = PaintingStyle.fill;
+    for (final hazard in level.definition.hazards) {
+      canvas.drawRect(hazard, hazardPaint);
+    }
+
+    for (final enemy in level.enemies) {
+      final rect = enemy.rect;
+      final enemyPaint = Paint()..color = const Color(0xFFf472b6);
+      canvas.drawRect(rect, enemyPaint);
+      canvas.drawRect(
+        rect.deflate(2),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = Colors.white.withOpacity(0.6),
+      );
+    }
+
+    for (final ingredient in level.ingredients) {
+      final Color baseColor = switch (ingredient.type) {
+        IngredientType.dough => const Color(0xFFfb923c),
+        IngredientType.sauce => const Color(0xFFef4444),
+        IngredientType.cheese => const Color(0xFFfacc15),
+        IngredientType.toppings => const Color(0xFF4ade80),
+      };
+      final paint = Paint()
+        ..color = ingredient.collected ? baseColor.withOpacity(0.2) : baseColor;
+      final rect = ingredient.rect;
+      final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(6));
+      canvas.drawRRect(rrect, paint);
+      if (ingredient.collected) {
+        canvas.drawLine(
+          rect.topLeft,
+          rect.bottomRight,
+          Paint()
+            ..color = Colors.white
+            ..strokeWidth = 2,
+        );
+      }
+    }
+
+    final exitPaint = Paint()
+      ..color = exitUnlocked ? const Color(0xFFbef264) : const Color(0xFFfcd34d)
+      ..style = PaintingStyle.fill;
+    final exitOutline = Paint()
       ..color = Colors.white
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3;
-    final goalRRect = RRect.fromRectAndRadius(goal, const Radius.circular(8));
-    canvas.drawRRect(goalRRect, goalPaint);
-    canvas.drawRRect(goalRRect, goalOutline);
+    final exitRect = level.definition.exit;
+    final exitRRect = RRect.fromRectAndRadius(exitRect, const Radius.circular(10));
+    canvas.drawRRect(exitRRect, exitPaint);
+    canvas.drawRRect(exitRRect, exitOutline);
 
-    final playerPaint = Paint()
-      ..color = won ? const Color(0xFF22c55e) : const Color(0xFF38bdf8);
+    final playerPaint = Paint()..color = const Color(0xFF38bdf8);
     final playerRRect = RRect.fromRectAndRadius(player, const Radius.circular(8));
     canvas.drawRRect(playerRRect, playerPaint);
 
@@ -381,9 +685,7 @@ class GamePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(GamePainter oldDelegate) {
-    return oldDelegate.player != player ||
-        oldDelegate.cameraX != cameraX ||
-        oldDelegate.won != won;
+  bool shouldRepaint(covariant GamePainter oldDelegate) {
+    return true;
   }
 }
