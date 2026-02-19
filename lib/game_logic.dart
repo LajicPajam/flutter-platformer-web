@@ -20,12 +20,14 @@ class IngredientState {
     required this.id,
     required this.type,
     required this.rect,
+    required this.displayName,
     this.collected = false,
   });
 
   final String id;
   final IngredientType type;
   final Rect rect;
+  final String displayName;
   bool collected;
 }
 
@@ -45,11 +47,10 @@ class IngredientTracker {
     }
   }
 
-  Map<IngredientType, bool> statusByType() {
-    final Map<IngredientType, bool> status = {};
+  Map<String, bool> statusByName() {
+    final Map<String, bool> status = {};
     for (final ingredient in _ingredients) {
-      status[ingredient.type] =
-          (status[ingredient.type] ?? true) && ingredient.collected;
+      status[ingredient.displayName] = ingredient.collected;
     }
     return status;
   }

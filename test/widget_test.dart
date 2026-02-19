@@ -4,10 +4,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_platformer/main.dart';
 
 void main() {
-  testWidgets('shows Bryce hud and canvas', (tester) async {
+  testWidgets('home screen shows title and starts game', (tester) async {
     await tester.pumpWidget(const PlatformerApp());
 
-    expect(find.textContaining("Bryce's Pizza Quest"), findsWidgets);
+    expect(find.text("Bryce's Pizza Quest"), findsOneWidget);
+    final playButton = find.text('Start Cooking');
+    expect(playButton, findsOneWidget);
+
+    await tester.tap(playButton);
+    await tester.pump();
+
+    expect(find.textContaining('Level 1/5'), findsOneWidget);
     expect(find.byType(CustomPaint), findsWidgets);
   });
 }

@@ -1,6 +1,7 @@
 import 'dart:ui';
 
 import 'package:flutter_platformer/game_logic.dart';
+import 'package:flutter_platformer/level_data.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -24,11 +25,13 @@ void main() {
           id: 'a',
           type: IngredientType.dough,
           rect: Rect.zero,
+          displayName: 'Test Dough',
         ),
         IngredientState(
           id: 'b',
           type: IngredientType.sauce,
           rect: Rect.zero,
+          displayName: 'Test Sauce',
         ),
       ],
     );
@@ -48,5 +51,13 @@ void main() {
     expect(lives.remaining, 1);
     expect(lives.loseLife(), isTrue);
     expect(lives.remaining, 0);
+  });
+
+  test('level definitions provide five levels with four ingredients each', () {
+    final levels = buildLevelDefinitions();
+    expect(levels.length, 5);
+    for (final level in levels) {
+      expect(level.ingredients.length, 4);
+    }
   });
 }

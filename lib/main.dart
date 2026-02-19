@@ -59,6 +59,7 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
   bool _levelCleared = false;
   bool _victory = false;
   bool _gameOver = false;
+  bool _showMenu = true;
   double _cameraX = 0;
   Duration? _lastTick;
   Size? _viewportSize;
@@ -76,7 +77,7 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
 
   Size get _worldSize => _currentLevel.definition.worldSize;
 
-  bool get _isPaused => _levelCleared || _victory || _gameOver;
+  bool get _isPaused => _showMenu || _levelCleared || _victory || _gameOver;
 
   @override
   void initState() {
@@ -96,6 +97,8 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
   void _loadLevel(int index) {
     _currentLevelIndex = index;
     _levelInstance = _levels[index].createInstance();
+    _statusBanner = null;
+    _bannerExpiry = null;
     _respawn(resetLives: false);
   }
 
@@ -223,7 +226,7 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
     for (final ingredient in _currentLevel.ingredients) {
       if (!ingredient.collected && playerRect.overlaps(ingredient.rect)) {
         ingredient.collected = true;
-        _showBanner('Bryce grabbed ${ingredientLabel(ingredient.type)}!');
+        _showBanner('Bryce grabbed ${ingredient.displayName}!');
       }
     }
   }
@@ -310,6 +313,18 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
     final key = event.logicalKey;
     final isDown = event is RawKeyDownEvent;
 
+    if (_showMenu && isDown &&
+        (key == LogicalKeyboardKey.space ||
+            key == LogicalKeyboardKey.enter ||
+            key == LogicalKeyboardKey.keyP)) {
+      _beginQuest();
+      return;
+    }
+
+    if (_showMenu) {
+      return;
+    }
+
     if (key == LogicalKeyboardKey.arrowLeft || key == LogicalKeyboardKey.keyA) {
       _leftPressed = isDown;
     } else if (key == LogicalKeyboardKey.arrowRight || key == LogicalKeyboardKey.keyD) {
@@ -335,8 +350,35 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
     }
   }
 
+  void _beginQuest() {
+    setState(() {
+      _showMenu = false;
+      _victory = false;
+      _gameOver = false;
+      _levelCleared = false;
+      _statusBanner = null;
+      _bannerExpiry = null;
+      _loadLevel(0);
+      _respawn(resetLives: true);
+    });
+  }
+
   void _restartCampaign() {
     setState(() {
+      _showMenu = false;
+      _victory = false;
+      _gameOver = false;
+      _levelCleared = false;
+      _statusBanner = null;
+      _bannerExpiry = null;
+      _loadLevel(0);
+      _respawn(resetLives: true);
+    });
+  }
+
+  void _returnToTitle() {
+    setState(() {
+      _showMenu = true;
       _victory = false;
       _gameOver = false;
       _levelCleared = false;
@@ -376,6 +418,7 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
                       player: _playerRect,
                       cameraX: _cameraX,
                       exitUnlocked: _currentLevel.tracker.isComplete,
+                      themeLabel: _levels[_currentLevelIndex].theme,
                     ),
                   ),
                   _buildHud(),
@@ -414,6 +457,7 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
                         ),
                       ),
                     ),
+                  if (_showMenu) _buildHomeScreen(context),
                   if (_levelCleared)
                     _buildBlockingOverlay(
                       title: 'Level clear!',
@@ -427,6 +471,8 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
                       description: 'Bryce assembled the ultimate pie. Time to feed the city.',
                       primaryLabel: 'Restart Quest',
                       onPrimary: _restartCampaign,
+                      secondaryLabel: 'Back to Title',
+                      onSecondary: _returnToTitle,
                     ),
                   if (_gameOver)
                     _buildBlockingOverlay(
@@ -434,6 +480,8 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
                       description: 'Bryce ran out of aprons. Try the quest again!',
                       primaryLabel: 'Restart Quest',
                       onPrimary: _restartCampaign,
+                      secondaryLabel: 'Back to Title',
+                      onSecondary: _returnToTitle,
                     ),
                 ],
               );
@@ -444,15 +492,71 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
     );
   }
 
+  Widget _buildHomeScreen(BuildContext context) {
+    return Positioned.fill(
+      child: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF0f172a), Color(0xFF1f2937)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: Card(
+              color: Colors.black.withOpacity(0.8),
+              elevation: 6,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const Text(
+                      "Bryce's Pizza Quest",
+                      style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Five themed kitchens. Four essential ingredients per stop. '
+                      'Double-jump past rival chefs and hazards to finish Bryce\'s cosmic pie.',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 20),
+                    ElevatedButton.icon(
+                      onPressed: _beginQuest,
+                      icon: const Icon(Icons.local_pizza),
+                      label: const Text('Start Cooking'),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Controls: Arrow or WASD to move, Space/Up to double jump, R to restart.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12, color: Colors.white70),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildHud() {
+    if (_showMenu) {
+      return const SizedBox.shrink();
+    }
+
     final level = _levels[_currentLevelIndex];
     final tracker = _currentLevel.tracker;
     final ingredientChips = tracker.ingredients
-        .map((ingredient) => _IngredientChip(
-              label: ingredientLabel(ingredient.type),
-              collected: ingredient.collected,
-              type: ingredient.type,
-            ))
+        .map((ingredient) => _IngredientChip(ingredient: ingredient))
         .toList();
 
     return Positioned(
@@ -473,6 +577,10 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
               Text(
                 "Bryce's Pizza Quest — Level ${_currentLevelIndex + 1}/${_levels.length}: ${level.name}",
                 style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              Text(
+                level.theme,
+                style: const TextStyle(fontSize: 12, color: Colors.white70),
               ),
               const SizedBox(height: 4),
               Row(
@@ -508,6 +616,8 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
     required String description,
     required String primaryLabel,
     required VoidCallback onPrimary,
+    String? secondaryLabel,
+    VoidCallback? onSecondary,
   }) {
     return Positioned.fill(
       child: DecoratedBox(
@@ -523,17 +633,29 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
               ),
               const SizedBox(height: 16),
               SizedBox(
-                width: 320,
+                width: 360,
                 child: Text(
                   description,
                   textAlign: TextAlign.center,
                 ),
               ),
               const SizedBox(height: 24),
-              ElevatedButton.icon(
-                onPressed: onPrimary,
-                icon: const Icon(Icons.replay),
-                label: Text(primaryLabel),
+              Wrap(
+                spacing: 12,
+                alignment: WrapAlignment.center,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: onPrimary,
+                    icon: const Icon(Icons.replay),
+                    label: Text(primaryLabel),
+                  ),
+                  if (secondaryLabel != null && onSecondary != null)
+                    OutlinedButton.icon(
+                      onPressed: onSecondary,
+                      icon: const Icon(Icons.home),
+                      label: Text(secondaryLabel),
+                    ),
+                ],
               ),
             ],
           ),
@@ -544,20 +666,14 @@ class _GamePageState extends State<GamePage> with SingleTickerProviderStateMixin
 }
 
 class _IngredientChip extends StatelessWidget {
-  const _IngredientChip({
-    required this.label,
-    required this.collected,
-    required this.type,
-  });
+  const _IngredientChip({required this.ingredient});
 
-  final String label;
-  final bool collected;
-  final IngredientType type;
+  final IngredientState ingredient;
 
   @override
   Widget build(BuildContext context) {
     final Color color;
-    switch (type) {
+    switch (ingredient.type) {
       case IngredientType.dough:
         color = const Color(0xFFfb923c);
         break;
@@ -574,12 +690,12 @@ class _IngredientChip extends StatelessWidget {
 
     return Chip(
       avatar: Icon(
-        collected ? Icons.check_circle : Icons.circle_outlined,
+        ingredient.collected ? Icons.check_circle : Icons.circle_outlined,
         size: 18,
-        color: collected ? Colors.limeAccent : Colors.white70,
+        color: ingredient.collected ? Colors.limeAccent : Colors.white70,
       ),
-      backgroundColor: collected ? color.withOpacity(0.3) : Colors.white12,
-      label: Text('$label ${collected ? '✓' : '…'}'),
+      backgroundColor: ingredient.collected ? color.withOpacity(0.3) : Colors.white12,
+      label: Text('${ingredient.displayName} ${ingredient.collected ? '✓' : '…'}'),
     );
   }
 }
@@ -590,18 +706,21 @@ class GamePainter extends CustomPainter {
     required this.player,
     required this.cameraX,
     required this.exitUnlocked,
+    required this.themeLabel,
   });
 
   final LevelInstance level;
   final Rect player;
   final double cameraX;
   final bool exitUnlocked;
+  final String themeLabel;
 
   @override
   void paint(Canvas canvas, Size size) {
+    final colors = _gradientForTheme(themeLabel);
     final background = Paint()
-      ..shader = const LinearGradient(
-        colors: [Color(0xFF0f172a), Color(0xFF1e293b)],
+      ..shader = LinearGradient(
+        colors: colors,
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
@@ -631,15 +750,18 @@ class GamePainter extends CustomPainter {
 
     for (final enemy in level.enemies) {
       final rect = enemy.rect;
-      final enemyPaint = Paint()..color = const Color(0xFFf472b6);
-      canvas.drawRect(rect, enemyPaint);
-      canvas.drawRect(
-        rect.deflate(2),
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2
-          ..color = Colors.white.withOpacity(0.6),
-      );
+      final body = RRect.fromRectAndRadius(rect, const Radius.circular(8));
+      canvas.drawRRect(body, Paint()..color = const Color(0xFFdc2626));
+      final hat = Rect.fromLTWH(rect.left, rect.top - 10, rect.width, 10);
+      canvas.drawRect(hat, Paint()..color = const Color(0xFF16a34a));
+      final brim = Rect.fromLTWH(rect.left - 4, rect.top - 4, rect.width + 8, 6);
+      canvas.drawRect(brim, Paint()..color = Colors.white);
+      final stache = Path()
+        ..moveTo(rect.center.dx - 10, rect.center.dy + 4)
+        ..quadraticBezierTo(rect.center.dx - 4, rect.center.dy + 12, rect.center.dx, rect.center.dy + 4)
+        ..quadraticBezierTo(rect.center.dx + 4, rect.center.dy + 12, rect.center.dx + 10, rect.center.dy + 4)
+        ..quadraticBezierTo(rect.center.dx, rect.center.dy + 18, rect.center.dx - 10, rect.center.dy + 4);
+      canvas.drawPath(stache, Paint()..color = Colors.black);
     }
 
     for (final ingredient in level.ingredients) {
@@ -677,11 +799,57 @@ class GamePainter extends CustomPainter {
     canvas.drawRRect(exitRRect, exitPaint);
     canvas.drawRRect(exitRRect, exitOutline);
 
-    final playerPaint = Paint()..color = const Color(0xFF38bdf8);
-    final playerRRect = RRect.fromRectAndRadius(player, const Radius.circular(8));
-    canvas.drawRRect(playerRRect, playerPaint);
+    _drawBryce(canvas, player);
 
     canvas.restore();
+  }
+
+  void _drawBryce(Canvas canvas, Rect rect) {
+    final body = RRect.fromRectAndRadius(rect.deflate(4), const Radius.circular(10));
+    final bodyPaint = Paint()..color = const Color(0xFF38bdf8);
+    canvas.drawRRect(body, bodyPaint);
+
+    final hatRect = Rect.fromLTWH(rect.center.dx - 18, rect.top - 12, 36, 12);
+    final brimRect = Rect.fromLTWH(rect.center.dx - 22, rect.top - 4, 44, 6);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(brimRect, const Radius.circular(4)),
+      Paint()..color = const Color(0xFF0f172a),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(hatRect, const Radius.circular(4)),
+      Paint()..color = const Color(0xFF22c55e),
+    );
+
+    final eyePaint = Paint()..color = Colors.white;
+    canvas.drawCircle(Offset(rect.left + 14, rect.center.dy - 6), 4, eyePaint);
+    canvas.drawCircle(Offset(rect.right - 14, rect.center.dy - 6), 4, eyePaint);
+    canvas.drawCircle(Offset(rect.left + 14, rect.center.dy - 6), 2.3, Paint()..color = Colors.black);
+    canvas.drawCircle(Offset(rect.right - 14, rect.center.dy - 6), 2.3, Paint()..color = Colors.black);
+
+    final mustache = Path()
+      ..moveTo(rect.center.dx - 14, rect.center.dy + 4)
+      ..quadraticBezierTo(rect.center.dx - 4, rect.center.dy + 12, rect.center.dx, rect.center.dy + 4)
+      ..quadraticBezierTo(rect.center.dx + 4, rect.center.dy + 12, rect.center.dx + 14, rect.center.dy + 4)
+      ..lineTo(rect.center.dx + 14, rect.center.dy + 8)
+      ..quadraticBezierTo(rect.center.dx, rect.center.dy + 20, rect.center.dx - 14, rect.center.dy + 8)
+      ..close();
+    canvas.drawPath(mustache, Paint()..color = const Color(0xFF0f172a));
+  }
+
+  List<Color> _gradientForTheme(String label) {
+    if (label.contains('Market')) {
+      return const [Color(0xFF1a2b4c), Color(0xFF0f172a)];
+    }
+    if (label.contains('Skyline')) {
+      return const [Color(0xFF0f172a), Color(0xFF1e3a5f)];
+    }
+    if (label.contains('Coastal')) {
+      return const [Color(0xFF032c3d), Color(0xFF0a192f)];
+    }
+    if (label.contains('Cosmic')) {
+      return const [Color(0xFF111827), Color(0xFF3b0764)];
+    }
+    return const [Color(0xFF0f172a), Color(0xFF1f2937)];
   }
 
   @override
