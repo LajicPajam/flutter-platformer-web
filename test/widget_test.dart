@@ -15,6 +15,7 @@ void main() {
     await tester.pump();
 
     expect(find.textContaining('Level 1/5'), findsOneWidget);
+    expect(find.textContaining('Checkpoint: Starting Oven'), findsOneWidget);
     expect(find.byType(CustomPaint), findsWidgets);
   });
 }

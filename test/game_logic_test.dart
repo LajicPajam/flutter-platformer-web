@@ -60,4 +60,11 @@ void main() {
       expect(level.ingredients.length, 4);
     }
   });
+
+  test('each level defines at least one checkpoint', () {
+    final levels = buildLevelDefinitions();
+    for (final level in levels) {
+      expect(level.checkpoints.isNotEmpty, isTrue);
+    }
+  });
 }
