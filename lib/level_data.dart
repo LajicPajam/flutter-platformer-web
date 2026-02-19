@@ -83,6 +83,27 @@ class MovingEnemy {
   }
 }
 
+class CheckpointDefinition {
+  const CheckpointDefinition({
+    required this.area,
+    required this.respawn,
+    required this.label,
+  });
+
+  final Rect area;
+  final Offset respawn;
+  final String label;
+
+  CheckpointState createState() => CheckpointState(definition: this);
+}
+
+class CheckpointState {
+  CheckpointState({required this.definition});
+
+  final CheckpointDefinition definition;
+  bool activated = false;
+}
+
 class LevelDefinition {
   const LevelDefinition({
     required this.name,
@@ -94,6 +115,7 @@ class LevelDefinition {
     required this.hazards,
     required this.ingredients,
     required this.enemies,
+    required this.checkpoints,
   });
 
   final String name;
@@ -105,24 +127,32 @@ class LevelDefinition {
   final List<Rect> hazards;
   final List<IngredientDefinition> ingredients;
   final List<EnemyDefinition> enemies;
+  final List<CheckpointDefinition> checkpoints;
 
   LevelInstance createInstance() => LevelInstance(definition: this);
 }
 
 class LevelInstance {
   LevelInstance({required this.definition}) {
-    resetDynamicState();
+    ingredients = definition.ingredients.map((def) => def.createState()).toList();
+    tracker = IngredientTracker(ingredients: ingredients);
+    enemies = definition.enemies.map((def) => def.createState()).toList();
+    checkpoints = definition.checkpoints.map((def) => def.createState()).toList();
   }
 
   final LevelDefinition definition;
   late List<IngredientState> ingredients;
   late List<MovingEnemy> enemies;
   late IngredientTracker tracker;
+  late List<CheckpointState> checkpoints;
 
-  void resetDynamicState() {
-    ingredients = definition.ingredients.map((def) => def.createState()).toList();
+  void resetDynamicState({bool full = true}) {
     enemies = definition.enemies.map((def) => def.createState()).toList();
-    tracker = IngredientTracker(ingredients: ingredients);
+    if (full) {
+      ingredients = definition.ingredients.map((def) => def.createState()).toList();
+      tracker = IngredientTracker(ingredients: ingredients);
+      checkpoints = definition.checkpoints.map((def) => def.createState()).toList();
+    }
   }
 }
 
@@ -180,6 +210,18 @@ List<LevelDefinition> buildLevelDefinitions() {
           speed: 120,
           minX: 1180,
           maxX: 1520,
+        ),
+      ],
+      checkpoints: const [
+        CheckpointDefinition(
+          area: Rect.fromLTWH(620, 640, 60, 80),
+          respawn: Offset(620, 620),
+          label: 'Brick Oven A',
+        ),
+        CheckpointDefinition(
+          area: Rect.fromLTWH(1500, 420, 80, 80),
+          respawn: Offset(1500, 420),
+          label: 'Basil Garden',
         ),
       ],
     ),
@@ -245,6 +287,18 @@ List<LevelDefinition> buildLevelDefinitions() {
           speed: 160,
           minX: 1500,
           maxX: 1900,
+        ),
+      ],
+      checkpoints: const [
+        CheckpointDefinition(
+          area: Rect.fromLTWH(850, 600, 80, 80),
+          respawn: Offset(860, 600),
+          label: 'Neon Cart',
+        ),
+        CheckpointDefinition(
+          area: Rect.fromLTWH(1800, 420, 80, 80),
+          respawn: Offset(1810, 420),
+          label: 'Spice Stall',
         ),
       ],
     ),
@@ -313,6 +367,18 @@ List<LevelDefinition> buildLevelDefinitions() {
           maxX: 2300,
         ),
       ],
+      checkpoints: const [
+        CheckpointDefinition(
+          area: Rect.fromLTWH(1180, 580, 80, 80),
+          respawn: Offset(1190, 580),
+          label: 'Sky Kitchen Lift',
+        ),
+        CheckpointDefinition(
+          area: Rect.fromLTWH(1980, 660, 80, 80),
+          respawn: Offset(1990, 660),
+          label: 'Windmill Bench',
+        ),
+      ],
     ),
     LevelDefinition(
       name: 'Coastal Kitchen',
@@ -376,6 +442,18 @@ List<LevelDefinition> buildLevelDefinitions() {
           speed: 180,
           minX: 1700,
           maxX: 2100,
+        ),
+      ],
+      checkpoints: const [
+        CheckpointDefinition(
+          area: Rect.fromLTWH(1100, 720, 80, 80),
+          respawn: Offset(1110, 720),
+          label: 'Pier Oven',
+        ),
+        CheckpointDefinition(
+          area: Rect.fromLTWH(2100, 500, 80, 80),
+          respawn: Offset(2110, 500),
+          label: 'Boardwalk Grill',
         ),
       ],
     ),
@@ -449,6 +527,18 @@ List<LevelDefinition> buildLevelDefinitions() {
           speed: 220,
           minX: 2320,
           maxX: 2700,
+        ),
+      ],
+      checkpoints: const [
+        CheckpointDefinition(
+          area: Rect.fromLTWH(1500, 940, 120, 80),
+          respawn: Offset(1510, 940),
+          label: 'Orbital Forge',
+        ),
+        CheckpointDefinition(
+          area: Rect.fromLTWH(2350, 460, 100, 80),
+          respawn: Offset(2360, 460),
+          label: 'Starlight Counter',
         ),
       ],
     ),
